@@ -9,6 +9,10 @@ from urllib.parse import urlparse
 SCRIPT_INTERFACE = "internal-module"
 SCRIPT_INTERFACE_REASON = "Static script inventory helpers imported by trust_check.py."
 INTERNAL_SCRIPT_INTERFACE = "internal-module"
+URLLIB_REQUEST_CALLS = {
+    "urlopen", "urlretrieve", "Request",
+    "urllib.request.urlopen", "urllib.request.urlretrieve", "urllib.request.Request",
+}
 
 
 def relpath(skill_dir: Path, path: Path) -> str:
@@ -112,7 +116,7 @@ def script_flags(text: str) -> dict[str, bool]:
     except SyntaxError:
         return {
             "uses_input": bool(re.search(r"\b(?:input|getpass)\s*\(", text)),
-            "uses_network": bool(re.search(r"\b(?:urlopen|Request)\s*\(|\brequests\.", text)),
+            "uses_network": bool(re.search(r"\b(?:urlopen|urlretrieve|Request)\s*\(|\brequests\.", text)),
             "uses_file_write": bool(
                 re.search(r"\.(?:write_text|write_bytes|mkdir|unlink)\s*\(", text)
                 or re.search(r"\b(?:open)\s*\([^)]*['\"][wa+x]", text)
@@ -124,7 +128,7 @@ def script_flags(text: str) -> dict[str, bool]:
     calls = [call_name(node.func) for node in call_nodes]
     return {
         "uses_input": any(name in {"input", "getpass.getpass"} or name.endswith(".getpass") for name in calls),
-        "uses_network": any(name in {"urlopen", "Request"} or name.startswith("requests.") for name in calls),
+        "uses_network": any(name in URLLIB_REQUEST_CALLS or name.startswith("requests.") for name in calls),
         "uses_file_write": any(is_file_write_call(node, call_name(node.func)) for node in call_nodes),
         "uses_subprocess": any(name.startswith("subprocess.") for name in calls),
     }

@@ -11,6 +11,7 @@ SCRIPT = ROOT / "scripts" / "trust_check.py"
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from trust_check import iter_scan_files, relpath
+from trust_check_scripts import script_flags
 
 
 INTERFACE = """interface:
@@ -37,6 +38,14 @@ compatibility:
 
 
 def main() -> None:
+    assert script_flags("from urllib.request import urlopen\nurlopen('https://example.com')\n")["uses_network"]
+    assert script_flags("import urllib.request\nurllib.request.urlopen('https://example.com')\n")["uses_network"]
+    assert script_flags("import urllib.request\nurllib.request.Request('https://example.com')\n")["uses_network"]
+    assert script_flags("import urllib.request\nurllib.request.urlretrieve('https://example.com')\n")["uses_network"]
+    assert script_flags("from urllib.request import urlretrieve\nurlretrieve('https://example.com')\n")["uses_network"]
+    assert script_flags("urllib.request.urlretrieve('https://example.com')\ninvalid syntax\n")["uses_network"]
+    assert not script_flags("other.urlopen('local-data')\n")["uses_network"]
+
     tmp_root = ROOT / "tests" / "tmp_trust"
     shutil.rmtree(tmp_root, ignore_errors=True)
     tmp_root.mkdir(parents=True, exist_ok=True)
@@ -237,7 +246,7 @@ def main() -> None:
     )
     (network_skill / "agents" / "interface.yaml").write_text(INTERFACE, encoding="utf-8")
     (network_skill / "scripts" / "probe.py").write_text(
-        "from urllib.request import urlopen\n\nurlopen('https://example.com/status')\n",
+        "import urllib.request\n\nurllib.request.urlopen('https://example.com/status')\n",
         encoding="utf-8",
     )
     missing_policy_proc = subprocess.run(
@@ -325,6 +334,22 @@ def main() -> None:
     assert approved_policy_payload["summary"]["permission_approved_count"] == 1, approved_policy_payload
     assert approved_policy_payload["summary"]["permission_missing_count"] == 0, approved_policy_payload
     assert not any("Permission approvals missing" in item for item in approved_policy_payload["warnings"]), approved_policy_payload
+
+    network_package = tmp_root / "network-package"
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "cross_packager.py"), str(network_skill),
+         "--platform", "generic", "--output-dir", str(network_package)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    adapter = json.loads((network_package / "targets" / "generic" / "adapter.json").read_text(encoding="utf-8"))
+    network = adapter["permission_contract"]["capabilities"]["network"]
+    assert network["required"] is True, network
+    assert network["script_count"] == 1, network
+    assert network["scripts"] == ["scripts/probe.py"], network
+    assert adapter["permission_contract"]["network_policy"]["covered_scripts"] == ["scripts/probe.py"], adapter
 
     help_smoke_skill = tmp_root / "help-smoke-skill"
     (help_smoke_skill / "agents").mkdir(parents=True, exist_ok=True)
